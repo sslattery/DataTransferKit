@@ -1,0 +1,6 @@
+var searchData=
+[
+  ['base',['Base',['../classDataTransferKit_1_1IntrepidSideCell.html#a0926739519a17317e3052bbf972e9dfc',1,'DataTransferKit::IntrepidSideCell::Base()'],['../classDataTransferKit_1_1MovingLeastSquareReconstructionOperator.html#a7d1547b4688c295bb5a53d3f0f34fd8d',1,'DataTransferKit::MovingLeastSquareReconstructionOperator::Base()'],['../classDataTransferKit_1_1SplineInterpolationOperator.html#a472e8178aeeac987158472dd224a36cf',1,'DataTransferKit::SplineInterpolationOperator::Base()'],['../classDataTransferKit_1_1ConsistentInterpolationOperator.html#ab1d9c7aa316b52cca5e19e84386399af',1,'DataTransferKit::ConsistentInterpolationOperator::Base()']]],
+  ['boundingbox',['BoundingBox',['../classDataTransferKit_1_1nanoflann_1_1KDTreeSingleIndexAdaptor.html#a1f5bfad7bcb06d118f1c87245f7f20e4',1,'DataTransferKit::nanoflann::KDTreeSingleIndexAdaptor']]],
+  ['bp',['BP',['../classDataTransferKit_1_1LocalMLSProblem.html#a6a22f59f44b5ea126e636563c36d5ae4',1,'DataTransferKit::LocalMLSProblem::BP()'],['../classDataTransferKit_1_1SplineCoefficientMatrix.html#a1c61d3808f2cb50ceb1c9ef65f3e0cb4',1,'DataTransferKit::SplineCoefficientMatrix::BP()'],['../classDataTransferKit_1_1SplineEvaluationMatrix.html#a1fe4e832b444f029a8984f8b7ac9a527',1,'DataTransferKit::SplineEvaluationMatrix::BP()']]]
+];
