@@ -130,6 +130,11 @@ class ConsistentInterpolationOperator : virtual public MapOperator
     bool hasTransposeApplyImpl() const override;
 
   private:
+    // Repartion the coupling matrix for better scalability on small problems
+    // and build vector import/export objects.
+    void repartitionCouplingMatrix();
+
+  private:
     // Range entity topological dimension. Default is 0 (vertex).
     int d_range_entity_dim;
 

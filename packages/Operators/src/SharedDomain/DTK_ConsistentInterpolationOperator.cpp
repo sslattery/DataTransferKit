@@ -39,6 +39,7 @@
 //---------------------------------------------------------------------------//
 
 #include <algorithm>
+#include <numeric>
 #include <unordered_map>
 
 #include "DTK_BasicEntityPredicates.hpp"
@@ -47,9 +48,11 @@
 #include "DTK_ParallelSearch.hpp"
 #include "DTK_PredicateComposition.hpp"
 
+#include <Teuchos_CommHelpers.hpp>
 #include <Teuchos_OrdinalTraits.hpp>
 
 #include <Tpetra_Distributor.hpp>
+#include <Tpetra_Export.hpp>
 #include <Tpetra_Map.hpp>
 
 namespace DataTransferKit
@@ -286,6 +289,9 @@ void ConsistentInterpolationOperator::setupImpl(
             d_keep_range_vec->replaceGlobalValue( m, 1.0 );
         }
     }
+
+    // Finally, repartition the matrix if necessary for better performance.
+    repartitionCouplingMatrix();
 }
 
 //---------------------------------------------------------------------------//
@@ -334,6 +340,147 @@ Teuchos::ArrayView<const EntityId>
 ConsistentInterpolationOperator::getMissedRangeEntityIds() const
 {
     return d_missed_range_entity_ids();
+}
+
+//---------------------------------------------------------------------------//
+// Repartion the coupling matrix for better scalability on small problems and
+// build vector import/export objects.
+void ConsistentInterpolationOperator::repartitionCouplingMatrix()
+{
+    // Get the number of global rows in the matrix.
+    GO global_num_row = d_coupling_matrix->getGlobalNumRows();
+
+    // Tunable parameter for the number of rows per proc.
+    int requested_rows_per_proc = 1e4;
+
+    // Determine the number of procs that will have data.
+    int procs_with_data =
+        std::floor( global_num_row / requested_rows_per_proc ) + 1;
+
+    // Figure out the actual number of rows on each proc.
+    int base_rows_per_proc = std::floor( global_num_row / procs_with_data );
+    int remainder = global_num_row - base_rows_per_proc * procs_with_data;
+    DTK_CHECK( remainder < procs_with_data );
+    auto comm = d_coupling_matrix->getComm();
+    int comm_size = comm->getSize();
+    Teuchos::Array<GO> recv_rows_per_proc( comm_size, 0 );
+    for ( int p = 0; p < procs_with_data; ++p )
+    {
+        recv_rows_per_proc[p] = base_rows_per_proc;
+        if ( p < remainder )
+        {
+            ++recv_rows_per_proc[p];
+        }
+    }
+
+    // Check that we have the right number of global rows.
+    DTK_REMEMBER( GO init_val = 0 );
+    DTK_CHECK( std::accumulate( recv_rows_per_proc.begin(),
+                                recv_rows_per_proc.end(),
+                                init_val ) == global_num_row );
+
+    // Get the local row map for the coupling matrix.
+    auto old_row_map = d_coupling_matrix->getRowMap();
+
+    // Determine how many ids are currently owned by each rank.
+    Teuchos::Array<GO> send_rows_per_proc( comm_size, 0 );
+    GO local_num_elem = old_row_map->getNodeNumElements();
+    Teuchos::gatherAll( *comm, 1, &local_num_elem, comm_size,
+                        send_rows_per_proc.getRawPtr() );
+
+    // Determine what rows this process will send to the new decomposition.
+    int comm_rank = comm->getRank();
+    int send_rank = 0;
+    int recv_rank = 0;
+    int total_num_sends = 0;
+    int send_rows = 0;
+    int recv_rows = 0;
+    int num_to_send = 0;
+    Teuchos::Array<std::pair<int, int>> comm_pattern;
+    while ( send_rank <= comm_rank && recv_rank < comm_size )
+    {
+        DTK_CHECK( send_rank < comm_size );
+        DTK_CHECK( recv_rank < comm_size );
+
+        // Figure out the number of sends from send_rank to recv_rank
+        num_to_send = std::min( recv_rows_per_proc[recv_rank] - recv_rows,
+                                send_rows_per_proc[send_rank] - send_rows );
+
+        // Add to the communication pattern for this rank.
+        if ( send_rank == comm_rank )
+        {
+            comm_pattern.push_back( std::make_pair( recv_rank, num_to_send ) );
+            total_num_sends += num_to_send;
+        }
+
+        // Increment number of sends.
+        send_rows += num_to_send;
+        recv_rows += num_to_send;
+        DTK_CHECK( send_rows <=
+                   Teuchos::as<int>( send_rows_per_proc[send_rank] ) );
+        DTK_CHECK( recv_rows <=
+                   Teuchos::as<int>( recv_rows_per_proc[recv_rank] ) );
+
+        // If we ran out of rows to send on this rank, go to the next send
+        // rank.
+        if ( send_rows == Teuchos::as<int>( send_rows_per_proc[send_rank] ) )
+        {
+            ++send_rank;
+            send_rows = 0;
+        }
+
+        // If we ran out of rows to receive on this rank, go to the next
+        // receive rank.
+        if ( recv_rows == Teuchos::as<int>( recv_rows_per_proc[recv_rank] ) )
+        {
+            ++recv_rank;
+            recv_rows = 0;
+        }
+    }
+    DTK_CHECK( total_num_sends ==
+               Teuchos::as<int>( send_rows_per_proc[comm_rank] ) );
+
+    // Create a distribution plan for the global ids.
+    Teuchos::Array<int> export_ranks( total_num_sends );
+    int export_row = 0;
+    for ( auto &cp : comm_pattern )
+    {
+        for ( int s = 0; s < cp.second; ++s )
+        {
+            export_ranks[export_row] = cp.first;
+            ++export_row;
+        }
+    }
+
+    // Distribute the global ids.
+    Tpetra::Distributor row_dist( comm );
+    int num_import = row_dist.createFromSends( export_ranks() );
+    DTK_CHECK( num_import ==
+               Teuchos::as<int>( recv_rows_per_proc[comm_rank] ) );
+    Teuchos::Array<GO> import_rows( num_import );
+    row_dist.doPostsAndWaits( old_row_map->getNodeElementList(), 1,
+                              import_rows() );
+
+    // Create the new matrix row map.
+    auto new_row_map = Tpetra::createNonContigMap<LO, GO>( import_rows, comm );
+
+    // Create the row export.
+    auto row_exporter =
+        Tpetra::createExport<LO, GO>( old_row_map, new_row_map );
+
+    // Create a new reduced-size crs matrix. This new row map will have the
+    // same range and domain maps as the original so the matrix will
+    // automatically do the import/export for us.
+    auto const_coupling_matrix =
+        Teuchos::rcp_const_cast<const Tpetra::CrsMatrix<Scalar, LO, GO>>(
+            d_coupling_matrix );
+    Teuchos::RCP<Tpetra::CrsMatrix<Scalar, LO, GO>> matrix =
+        Tpetra::exportAndFillCompleteCrsMatrix( const_coupling_matrix,
+                                                *row_exporter );
+
+    // Finally, reassign the original coupling matrix to be the new coupling
+    // matrix.
+    d_coupling_matrix = matrix;
 }
 
 //---------------------------------------------------------------------------//
