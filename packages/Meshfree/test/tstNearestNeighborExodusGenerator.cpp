@@ -13,6 +13,7 @@
 #include "DTK_Types.h"
 
 #include "PointCloudProblemGenerator/ExodusProblemGenerator.hpp"
+#include "PointCloudProblemGenerator/HybridTransportProblemGenerator.hpp"
 #include "PointCloudProblemGenerator/PointCloudProblemGenerator.hpp"
 #include <DTK_DetailsDistributedSearchTreeImpl.hpp>
 #include <DTK_NearestNeighborOperator.hpp>
@@ -144,8 +145,7 @@ void computeNeighborsBruteForce(
 }
 
 //---------------------------------------------------------------------------//
-// Test a problem that is uniquely owned. Returns a view of ints in the
-// target decomposition indicating success/failure for each point.
+// Test a problem that is uniquely owned.
 template <class... ViewProperties>
 void testUniquelyOwnedProblem(
     const Kokkos::View<DataTransferKit::Coordinate **, ViewProperties...>
@@ -250,42 +250,20 @@ void testUniquelyOwnedProblem(
 }
 
 //---------------------------------------------------------------------------//
-// Partition the grids one-to-one
-TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( ExodusProblemGenerator, one_to_one, Node )
-{
-    // Type aliases.
-    using DeviceType = typename Node::device_type;
-    using Scalar = double;
-
-    // Get the communicator.
-    auto comm = Teuchos::DefaultComm<int>::getComm();
-
-    // Create a problem generator. Two tet meshes of a sphere centered at
-    // (0,0,0) with a radius of 10 are used. The source mesh is represented by
-    // a fine tet mesh and the target mesh is represented by a coarse tet mesh.
-    std::string src_exodus_file = "fine_sphere.exo";
-    std::string tgt_exodus_file = "coarse_sphere.exo";
-    DataTransferKit::ExodusProblemGenerator<Scalar, DeviceType, DeviceType>
-        generator( comm, src_exodus_file, tgt_exodus_file );
-
-    // Generate a uniquely owned problem.
-    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
-        src_coords;
-    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
-        tgt_coords;
-    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> src_field;
-    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> tgt_field;
-    generator.createUniquelyOwnedProblem( src_coords, src_field, tgt_coords,
-                                          tgt_field );
-
-    // Test the problem.
-    testUniquelyOwnedProblem( src_coords, src_field, tgt_coords, tgt_field,
-                              success, out );
-}
-
-//---------------------------------------------------------------------------//
-// Partition the grids with standard ghosting from connectivity.
-TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( ExodusProblemGenerator, ghosted, Node )
+// Test a problem that is ghosted.
+template <class Node, class... ViewProperties>
+void testGhostedProblem(
+    const Kokkos::View<DataTransferKit::GlobalOrdinal *, ViewProperties...>
+        &src_gids,
+    const Kokkos::View<DataTransferKit::Coordinate **, ViewProperties...>
+        &src_coords,
+    const Kokkos::View<double **, ViewProperties...> &src_field,
+    const Kokkos::View<DataTransferKit::GlobalOrdinal *, ViewProperties...>
+        &tgt_gids,
+    const Kokkos::View<DataTransferKit::Coordinate **, ViewProperties...>
+        &tgt_coords,
+    const Kokkos::View<double **, ViewProperties...> &tgt_field, bool &success,
+    Teuchos::FancyOStream &out )
 {
     // Type aliases.
     using DeviceType = typename Node::device_type;
@@ -299,30 +277,6 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( ExodusProblemGenerator, ghosted, Node )
 
     // Get the communicator.
     auto comm = Teuchos::DefaultComm<int>::getComm();
-
-    // Create a problem generator. Two tet meshes of a sphere centered at
-    // (0,0,0) with a radius of 10 are used. The source mesh is represented by
-    // a fine tet mesh and the target mesh is represented by a coarse tet mesh.
-    std::string src_exodus_file = "fine_sphere.exo";
-    std::string tgt_exodus_file = "coarse_sphere.exo";
-    DataTransferKit::ExodusProblemGenerator<Scalar, DeviceType, DeviceType>
-        generator( comm, src_exodus_file, tgt_exodus_file );
-
-    // Generate a ghosted owned problem.
-    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
-        src_coords;
-    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
-        tgt_coords;
-    Kokkos::View<DataTransferKit::GlobalOrdinal *, Kokkos::LayoutLeft,
-                 DeviceType>
-        src_gids;
-    Kokkos::View<DataTransferKit::GlobalOrdinal *, Kokkos::LayoutLeft,
-                 DeviceType>
-        tgt_gids;
-    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> src_field;
-    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> tgt_field;
-    generator.createGhostedProblem( src_coords, src_gids, src_field, tgt_coords,
-                                    tgt_gids, tgt_field );
 
     // Create Tpetra maps from the problem global ids.
     auto invalid_ordinal =
@@ -378,16 +332,132 @@ TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( ExodusProblemGenerator, ghosted, Node )
 }
 
 //---------------------------------------------------------------------------//
+// Partition the exodus grids one-to-one.
+TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( ExodusProblemGenerator, exo_one_to_one,
+                                   Node )
+{
+    // Type aliases.
+    using DeviceType = typename Node::device_type;
+    using Scalar = double;
+
+    // Get the communicator.
+    auto comm = Teuchos::DefaultComm<int>::getComm();
+
+    // Create a problem generator. Two tet meshes of a sphere centered at
+    // (0,0,0) with a radius of 10 are used. The source mesh is represented by
+    // a fine tet mesh and the target mesh is represented by a coarse tet mesh.
+    std::string src_exodus_file = "fine_sphere.exo";
+    std::string tgt_exodus_file = "coarse_sphere.exo";
+    DataTransferKit::ExodusProblemGenerator<Scalar, DeviceType, DeviceType>
+        generator( comm, src_exodus_file, tgt_exodus_file );
+
+    // Generate a uniquely owned problem.
+    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
+        src_coords;
+    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
+        tgt_coords;
+    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> src_field;
+    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> tgt_field;
+    generator.createUniquelyOwnedProblem( src_coords, src_field, tgt_coords,
+                                          tgt_field );
+
+    // Test the problem.
+    testUniquelyOwnedProblem( src_coords, src_field, tgt_coords, tgt_field,
+                              success, out );
+}
+
+//---------------------------------------------------------------------------//
+// Partition the exodus grids with ghosting from connectivity.
+TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( ExodusProblemGenerator, exo_ghosted, Node )
+{
+    // Type aliases.
+    using DeviceType = typename Node::device_type;
+    using Scalar = double;
+
+    // Get the communicator.
+    auto comm = Teuchos::DefaultComm<int>::getComm();
+
+    // Create a problem generator. Two tet meshes of a sphere centered at
+    // (0,0,0) with a radius of 10 are used. The source mesh is represented by
+    // a fine tet mesh and the target mesh is represented by a coarse tet mesh.
+    std::string src_exodus_file = "fine_sphere.exo";
+    std::string tgt_exodus_file = "coarse_sphere.exo";
+    DataTransferKit::ExodusProblemGenerator<Scalar, DeviceType, DeviceType>
+        generator( comm, src_exodus_file, tgt_exodus_file );
+
+    // Generate a ghosted problem.
+    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
+        src_coords;
+    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
+        tgt_coords;
+    Kokkos::View<DataTransferKit::GlobalOrdinal *, Kokkos::LayoutLeft,
+                 DeviceType>
+        src_gids;
+    Kokkos::View<DataTransferKit::GlobalOrdinal *, Kokkos::LayoutLeft,
+                 DeviceType>
+        tgt_gids;
+    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> src_field;
+    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> tgt_field;
+    generator.createGhostedProblem( src_coords, src_gids, src_field, tgt_coords,
+                                    tgt_gids, tgt_field );
+
+    // Test the problem.
+    testGhostedProblem<Node>( src_gids, src_coords, src_field, tgt_gids,
+                              tgt_coords, tgt_field, success, out );
+}
+
+//---------------------------------------------------------------------------//
+// Partition the hybrid transport grids.
+TEUCHOS_UNIT_TEST_TEMPLATE_1_DECL( HybridTransportProblemGenerator, ht_ghosted,
+                                   Node )
+{
+    // Type aliases.
+    using DeviceType = typename Node::device_type;
+    using Scalar = double;
+
+    // Get the communicator.
+    auto comm = Teuchos::DefaultComm<int>::getComm();
+
+    // Create a problem generator.
+    std::string input_file = "ht_ghosted_test.xml";
+    DataTransferKit::HybridTransportProblemGenerator<Scalar, DeviceType,
+                                                     DeviceType>
+        generator( comm, input_file );
+
+    // Generate a ghosted problem.
+    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
+        src_coords;
+    Kokkos::View<DataTransferKit::Coordinate **, Kokkos::LayoutLeft, DeviceType>
+        tgt_coords;
+    Kokkos::View<DataTransferKit::GlobalOrdinal *, Kokkos::LayoutLeft,
+                 DeviceType>
+        src_gids;
+    Kokkos::View<DataTransferKit::GlobalOrdinal *, Kokkos::LayoutLeft,
+                 DeviceType>
+        tgt_gids;
+    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> src_field;
+    Kokkos::View<Scalar **, Kokkos::LayoutLeft, DeviceType> tgt_field;
+    generator.createGhostedProblem( src_coords, src_gids, src_field, tgt_coords,
+                                    tgt_gids, tgt_field );
+
+    // Test the problem.
+    testGhostedProblem<Node>( src_gids, src_coords, src_field, tgt_gids,
+                              tgt_coords, tgt_field, success, out );
+}
+
+//---------------------------------------------------------------------------//
 
 // Include the test macros.
 #include "DataTransferKitMeshfree_ETIHelperMacros.h"
 
 // Create the test group
 #define UNIT_TEST_GROUP( NODE )                                                \
-    TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( ExodusProblemGenerator, one_to_one,  \
+    TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( ExodusProblemGenerator,              \
+                                          exo_one_to_one, NODE )               \
+    TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( ExodusProblemGenerator, exo_ghosted, \
                                           NODE )                               \
-    TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( ExodusProblemGenerator, ghosted,     \
-                                          NODE )
+    TEUCHOS_UNIT_TEST_TEMPLATE_1_INSTANT( HybridTransportProblemGenerator,     \
+                                          ht_ghosted, NODE )
 
 // Demangle the types
 DTK_ETI_MANGLING_TYPEDEFS()

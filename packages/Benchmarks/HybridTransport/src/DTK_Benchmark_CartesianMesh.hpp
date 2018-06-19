@@ -118,9 +118,6 @@ class CartesianMesh
                    const std::vector<double> &local_y_edges,
                    const std::vector<double> &local_z_edges );
 
-    // Destructor.
-    virtual ~CartesianMesh() = default;
-
     // Get the communicator for this mesh.
     Teuchos::RCP<const Teuchos::Comm<int>> comm() const { return _comm; }
 

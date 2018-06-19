@@ -1,0 +1,22 @@
+<ParameterList name="Hybrid Transport Ghosted Test">
+  <ParameterList name="Deterministic">
+    <Parameter name="Num Cells I" type="int" value="10"/>
+    <Parameter name="Num Cells J" type="int" value="10"/>
+    <Parameter name="Num Cells K" type="int" value="10"/>
+    <Parameter name="Delta X" type="double" value="1.0"/>
+    <Parameter name="Delta Y" type="double" value="1.0"/>
+    <Parameter name="Delta Z" type="double" value="1.0"/>
+  </ParameterList>
+  <ParameterList name="Monte Carlo">
+    <Parameter name="Num Sets" type="int" value="4"/>
+    <Parameter name="Num Cells I" type="int" value="10"/>
+    <Parameter name="Num Cells J" type="int" value="10"/>
+    <Parameter name="Num Cells K" type="int" value="10"/>
+    <Parameter name="Delta X" type="double" value="1.0"/>
+    <Parameter name="Delta Y" type="double" value="1.0"/>
+    <Parameter name="Delta Z" type="double" value="1.0"/>
+    <Parameter name="Boundary Mesh X" type="Array(double)" value="{0.0,1.0}"/>
+    <Parameter name="Boundary Mesh Y" type="Array(double)" value="{0.0,1.0}"/>
+    <Parameter name="Boundary Mesh Z" type="Array(double)" value="{0.0,1.0}"/>
+  </ParameterList>
+</ParameterList>

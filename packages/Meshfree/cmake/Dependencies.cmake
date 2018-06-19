@@ -9,4 +9,6 @@ TRIBITS_PACKAGE_DEFINE_DEPENDENCIES(
   TEST_OPTIONAL_TPLS
   BoostOrg
   Netcdf
+  TEST_OPTIONAL_PACKAGES
+  DataTransferKitHybridTransport
   )
